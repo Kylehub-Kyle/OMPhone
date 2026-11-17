@@ -27,8 +27,8 @@ android {
         applicationId = "com.omphone.capture"
         minSdk = 26
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.7"
+        versionCode = 9
+        versionName = "1.8"
 
         buildConfigField("String", "PTP_CLIENT_GUID", "\"$ptpClientGuid\"")
     }
@@ -59,6 +59,11 @@ android {
     }
     packaging {
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
+    }
+
+    // android.util.Log 在 JVM 单测里是 stub，会抛 "not mocked"；返回默认值即可
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 }
 

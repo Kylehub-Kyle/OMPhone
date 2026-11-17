@@ -64,6 +64,7 @@ class CaptureService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_DISCONNECT -> {
+                AppBus.edit { it.copy(error = "") }
                 stopCapture("未连接")
                 stopForeground(true)
                 stopSelf()
@@ -78,8 +79,7 @@ class CaptureService : Service() {
                 stopCapture("连接中…")
                 host = h
                 active = true
-                Prefs.saveIp(this, h)
-                AppBus.edit { it.copy(running = true, connected = false, stage = "连接中…", host = h) }
+                AppBus.edit { it.copy(running = true, connected = false, stage = "连接中…", host = h, error = "") }
                 acquireWakeLock()
                 job = scope.launch { supervise(h) }
             }
@@ -92,6 +92,9 @@ class CaptureService : Service() {
         var attempt = 0
         while (active) {
             attempt++
+            // 本轮会话的结束原因：fatal 表示配置类错误，重连无意义
+            var stopReason = ""
+            var fatalStop = false
             val cam = OmCamera(
                 host = target,
                 openSink = { name, kind, size -> MediaSaver(this).open(name, kind, size) },
@@ -104,7 +107,7 @@ class CaptureService : Service() {
                     }
 
                     override fun onDevice(text: String) {
-                        AppBus.edit { it.copy(device = text, connected = true) }
+                        AppBus.edit { it.copy(device = text, connected = true, error = "") }
                     }
 
                     override fun onLog(text: String) {
@@ -154,9 +157,15 @@ class CaptureService : Service() {
                         notify("$name 失败：$reason")
                     }
 
-                    override fun onStopped(reason: String) {
-                        AppBus.edit { it.copy(connected = false, stage = reason) }
-                        notify("连接中断：$reason")
+                    override fun onStopped(reason: String, fatal: Boolean) {
+                        val wasConnected = AppBus.state.value.connected
+                        AppBus.edit {
+                            it.copy(connected = false, stage = "连接失败", error = reason)
+                        }
+                        // 之前不管什么阶段都写「连接中断」，没连上过的时候是错的
+                        notify(if (wasConnected) "连接中断：$reason" else "连接失败：$reason")
+                        stopReason = reason
+                        fatalStop = fatal
                     }
                 }
             )
@@ -168,6 +177,17 @@ class CaptureService : Service() {
             }
             cam.stop()
             if (!active) break
+            if (fatalStop) {
+                // 配置错误（GUID 缺失/格式错等）：重试只会刷屏，直接停下等用户改配置
+                active = false
+                releaseWakeLock()
+                AppBus.edit {
+                    it.copy(running = false, connected = false, device = "", host = "", waiting = 0)
+                }
+                stopForeground(true)
+                stopSelf()
+                break
+            }
             AppBus.edit { it.copy(connected = false, device = "") }
             val wait = minOf(5 * attempt, 20)
             notify("连接中断，${wait}s 后重连…")

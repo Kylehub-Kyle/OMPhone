@@ -2,8 +2,12 @@ package com.omphone.capture
 
 import android.util.Log
 import java.io.ByteArrayOutputStream
+import java.net.ConnectException
 import java.net.InetSocketAddress
+import java.net.NoRouteToHostException
 import java.net.Socket
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
@@ -25,6 +29,14 @@ enum class FileKind(val ext: String, val mime: String) {
 }
 
 data class NewFile(val handle: Int, val slot: Int, val kind: FileKind, val fourcc: String)
+
+/**
+ * 配置类错误（GUID 缺失/格式错、地址非法等）。
+ *
+ * 这类错误重试没有意义，必须让上层直接停下并原样显示原因——
+ * 否则会被"连接超时""主机不可达"这类网络错误盖住，用户会去查网络而不是查配置。
+ */
+class ConfigException(message: String) : IllegalStateException(message)
 
 /** 下载落盘目标（由 Service 用 MediaStore 实现）。 */
 interface Sink {
@@ -57,7 +69,8 @@ class OmCamera(
         fun onProgress(orig: String, done: Long, total: Long)
         fun onSaved(name: String, orig: String, kind: FileKind, size: Long, uri: String)
         fun onFailed(name: String, orig: String, reason: String)
-        fun onStopped(reason: String)
+        /** [fatal] = true 表示重试也没用（配置问题），上层应停下而不是自动重连。 */
+        fun onStopped(reason: String, fatal: Boolean = false)
     }
 
     companion object {
@@ -73,13 +86,18 @@ class OmCamera(
     /** 未配置或格式不对时给出可操作的提示，而不是带上一个假 GUID 去撞 Init Failed。 */
     private fun clientGuid(): ByteArray {
         if (guidHex.isBlank()) {
-            throw IllegalStateException(
-                "未配置客户端 GUID：在 local.properties 写入 ptp.client.guid=<你的 32 位十六进制值> 后重新构建"
+            throw ConfigException(
+                "未配置客户端 GUID：在 local.properties 里写入 ptp.client.guid=<32 位十六进制>，或者设置同名环境变量，然后重新构建"
             )
         }
-        return runCatching { hexToBytes(guidHex) }.getOrElse {
-            throw IllegalStateException("客户端 GUID 格式错误，需要 32 位十六进制字符")
+        // 只做 hexToBytes 是不够的：短串（如 "abc123"）本身也是合法十六进制，
+        // 会被当成 3 字节 GUID 发给相机，最后只得到一句 Init Failed
+        if (guidHex.length != 32 || guidHex.any { it.digitToIntOrNull(16) == null }) {
+            throw ConfigException(
+                "客户端 GUID 格式错误：需要 32 位十六进制字符，当前是 ${guidHex.length} 位"
+            )
         }
+        return hexToBytes(guidHex)
     }
 
     @Volatile private var running = false
@@ -89,13 +107,16 @@ class OmCamera(
     fun runSession() {
         running = true
         try {
+            // 配置错误必须最先暴露：放在 connect 之后会被网络错误盖住
+            val guid = clientGuid()
+
             cb.onStage("UPnP 枚举…")
             val model = Upnp.probe(host)
             if (model != null) cb.onLog("UPnP: $model")
 
             cb.onStage("建立命令通道…")
             cmd.connect()
-            val connNum = cmd.initCommand(clientGuid(), hostname)
+            val connNum = cmd.initCommand(guid, hostname)
             cb.onLog("InitCommand ACK, connection=$connNum")
 
             cb.onStage("建立事件通道…")
@@ -119,14 +140,39 @@ class OmCamera(
             cb.onStage("监听中")
             startKeepalive()
             eventLoop()
+        } catch (e: ConfigException) {
+            Log.w(TAG, "config error", e)
+            cb.onStopped(e.message ?: "配置错误", fatal = true)
         } catch (e: Exception) {
             Log.w(TAG, "session error", e)
-            cb.onStopped(e.message ?: e.javaClass.simpleName)
+            cb.onStopped(friendlyError(e), fatal = false)
         } finally {
             running = false
             try { cmd.close() } catch (_: Exception) { }
             try { ev.close() } catch (_: Exception) { }
             downloads.shutdown()
+        }
+    }
+
+    /**
+     * 把 Socket 层的英文异常翻成「能照着做」的中文。
+     * 原始 message 仍留在 logcat 里（TAG=OmCamera），排障时不受影响。
+     */
+    internal fun friendlyError(e: Throwable): String {
+        val msg = e.message.orEmpty()
+        val low = msg.lowercase()
+        return when {
+            e is NoRouteToHostException || low.contains("ehostunreach") ->
+                "连不上相机（$host 主机不可达）。相机通常只接受一台设备：先在相机上断开其他连接，或等几秒再试"
+            e is ConnectException || low.contains("econnrefused") ->
+                "相机拒绝连接（$host:15740 未开放）。确认相机已进入「连接至 PC」模式，且 IP 是相机当前地址"
+            e is SocketTimeoutException || low.contains("timeout") || low.contains("timed out") ->
+                "连接 $host 超时。确认手机连的是这台相机的 WiFi，而不是家里的路由器"
+            e is UnknownHostException ->
+                "相机地址无法解析：检查 IP 是否填对（形如 192.168.1.50）"
+            low.contains("econnreset") || low.contains("connection reset") ->
+                "连接被相机重置：GUID 可能不在相机白名单里，或相机上已有其他客户端在连"
+            else -> msg.ifEmpty { e.javaClass.simpleName }
         }
     }
 

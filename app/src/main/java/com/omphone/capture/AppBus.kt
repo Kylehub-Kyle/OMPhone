@@ -26,7 +26,9 @@ data class UiState(
     val logLine: String = "",
     val savedCount: Int = 0,
     val savedBytes: Long = 0L,
-    val waiting: Int = 0
+    val waiting: Int = 0,
+    /** 最近一次失败原因（完整文本，不受状态胶囊宽度限制）；成功连上或重新发起连接时清空。 */
+    val error: String = ""
 )
 
 /** 全局唯一状态源：Service 写，Activity 读。 */
@@ -57,7 +59,6 @@ object AppBus {
 object Prefs {
     private const val NAME = "omphone"
     private const val KEY_FORMATS = "formats"
-    private const val KEY_IP = "last_ip"
 
     fun sp(ctx: Context): SharedPreferences =
         ctx.applicationContext.getSharedPreferences(NAME, Context.MODE_PRIVATE)
@@ -84,9 +85,6 @@ object Prefs {
         return on
     }
 
-    fun lastIp(ctx: Context): String = sp(ctx).getString(KEY_IP, "") ?: ""
-
-    fun saveIp(ctx: Context, ip: String) {
-        sp(ctx).edit().putString(KEY_IP, ip).apply()
-    }
+    // 相机 IP 不再持久化：相机开热点/换网就变，存下来只会在下次打开时指向一个错地址。
+    // 打开 App 与每次点「连接」都重新发现（见 MainActivity 的 autoDiscover / onToggle）。
 }

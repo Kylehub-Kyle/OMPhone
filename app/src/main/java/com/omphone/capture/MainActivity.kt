@@ -73,6 +73,7 @@ import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -225,7 +226,8 @@ private fun HomeScreen() {
     val st by state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
-    var ip by remember { mutableStateOf(Prefs.lastIp(ctx)) }
+    // 相机地址不落盘：打开时自动发现，每次点连接前再发现一次（相机换热点/换网就变了）
+    var ip by remember { mutableStateOf("") }
     var scanning by remember { mutableStateOf(false) }
     var formats by remember { mutableStateOf(Prefs.enabled(ctx)) }
     var showFormats by remember { mutableStateOf(false) }
@@ -305,23 +307,40 @@ private fun HomeScreen() {
         if (i > 0) pickedName = gallery[i - 1].name
     }
 
-    val onScan: () -> Unit = {
-        scope.launch {
-            scanning = true
-            val found = Discovery.find(ctx)
-            scanning = false
-            if (found != null) {
-                ip = found
-                Prefs.saveIp(ctx, found)
-            }
-        }
+    /** 发现相机：找到就写回输入框。返回 null 表示这一轮没找到。 */
+    suspend fun discover(): String? {
+        scanning = true
+        val found = Discovery.find(ctx)
+        scanning = false
+        if (found != null) ip = found
+        return found
     }
+
+    // 打开即自动发现。找不到就静默留空，用户点「连接」时会再发现一次并给出可操作提示
+    LaunchedEffect(Unit) {
+        if (!st.running) discover()
+    }
+
+    val onScan: () -> Unit = { scope.launch { discover() } }
     val onToggle: () -> Unit = {
         if (st.running || st.connected) {
             CaptureService.disconnect(ctx)
         } else {
-            val h = ip.trim()
-            if (h.isNotEmpty()) CaptureService.connect(ctx, h)
+            scope.launch {
+                // 每次连接前都重新发现：相机地址随热点/网络变化，用上次的地址连是「偶发连不上」的主因
+                val found = discover()
+                val target = found ?: ip.trim()
+                if (target.isEmpty()) {
+                    AppBus.edit {
+                        it.copy(
+                            error = "没有发现相机。确认相机已开机并进入「连接至 PC」模式，" +
+                                "且手机连的是这台相机的 WiFi；也可以在上面手动填 IP 后重试"
+                        )
+                    }
+                } else {
+                    CaptureService.connect(ctx, target)
+                }
+            }
         }
     }
 
@@ -359,6 +378,10 @@ private fun HomeScreen() {
                     .padding(horizontal = 18.dp)
             ) {
                 Header(st)
+                if (st.error.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    ErrorBanner(st.error)
+                }
                 Spacer(Modifier.height(14.dp))
                 ConnectionCard(
                     ip = ip, onIp = { ip = it }, st = st, scanning = scanning,
@@ -1397,6 +1420,70 @@ private fun Header(st: UiState) {
             Text("无线自动收图", color = TextDim, fontSize = 11.sp, letterSpacing = 1.sp)
         }
         StatusPill(st.connected, st.stage)
+    }
+}
+
+/**
+ * 失败原因横幅。
+ *
+ * 状态胶囊只有一行、宽度还受标题挤压，长消息会被省略号吃掉（"未配置客户端 GUID：在 l…"），
+ * 而这类消息恰好整句都是"该怎么修"。所以把完整原因单独放到下面这条可换行的横幅里，
+ * 超过三行再点开看全文。
+ */
+@Composable
+private fun ErrorBanner(text: String) {
+    var expanded by remember(text) { mutableStateOf(false) }
+    var overflowed by remember(text) { mutableStateOf(false) }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (Pal.dark) Color(0x1FFF7A7A) else Color(0x12D24545))
+            .border(
+                1.dp,
+                if (Pal.dark) Color(0x4DFF7A7A) else Color(0x33D24545),
+                RoundedCornerShape(12.dp)
+            )
+            .clickable { expanded = true }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            Icons.Rounded.WarningAmber, contentDescription = null,
+            tint = Danger, modifier = Modifier.size(15.dp).padding(top = 1.dp)
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text, color = Danger, fontSize = 12.sp, lineHeight = 18.sp,
+                maxLines = 3, overflow = TextOverflow.Ellipsis,
+                onTextLayout = { overflowed = it.hasVisualOverflow }
+            )
+            if (overflowed) {
+                Spacer(Modifier.height(4.dp))
+                Text("点击查看完整信息", color = TextDim, fontSize = 10.sp)
+            }
+        }
+    }
+
+    if (expanded) {
+        AlertDialog(
+            onDismissRequest = { expanded = false },
+            containerColor = CardBg,
+            tonalElevation = 0.dp,
+            title = {
+                Text("失败原因", color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            },
+            text = {
+                Text(text, color = TextMain, fontSize = 13.sp, lineHeight = 20.sp)
+            },
+            confirmButton = {
+                TextButton(onClick = { expanded = false }) {
+                    Text("知道了", color = Accent, fontSize = 13.sp)
+                }
+            }
+        )
     }
 }
 
