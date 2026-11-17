@@ -1,0 +1,38 @@
+# ---------------- 私有逆向材料（永不入库） ----------------
+# 原始抓包、字节流与逆向报告都在仓库外的 OM1-PTPIP-Research_PRIVATE/
+# 这里再兜一层，防止误拷进来后被提交
+OM1_PTPIP_抓包逆向分析.md
+OM1-PTPIP-Research_PRIVATE/
+*.pcap
+*.pcapng
+cmd_stream.txt
+evt_stream.txt
+tcp_flow.txt
+om1_ptp_client.py
+verify_photos.py
+
+# ---------------- 本地构建产物 ----------------
+dist/
+*.apk
+*.aab
+*.ap_
+*.idsig
+.gradle/
+build/
+app/build/
+captures/
+local.properties
+
+# ---------------- 签名与密钥 ----------------
+*.jks
+*.keystore
+keystore.properties
+release.properties
+
+# ---------------- IDE / 系统 ----------------
+.idea/
+*.iml
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

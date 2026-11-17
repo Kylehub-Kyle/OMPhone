@@ -1,0 +1,9 @@
+# 复制为 local.properties 后按实际情况填写。该文件不会入库（见 .gitignore）。
+#
+# Android SDK 路径
+sdk.dir=/path/to/android-sdk
+
+# 客户端 GUID：InitCommand 必须携带相机白名单认可的标识，换一组相机会回 Init Failed。
+# 这是设备专属凭据，仓库里没有默认值；不填时 App 连接会直接提示「未配置客户端 GUID」。
+# 32 位十六进制字符，不带 0x 前缀。
+ptp.client.guid=

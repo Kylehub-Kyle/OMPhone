@@ -1,0 +1,63 @@
+name: 问题反馈
+description: 连接不上、收图失败、界面异常等
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **请先确认**：电脑上的 OM Capture / 其他 PTP 软件已退出——相机同一时刻只允许一个会话。
+
+        ⚠️ 不要上传抓包文件（.pcapng）、字节流日志，或含真实照片的截图。序列号与局域网 IP 请打码。
+  - type: input
+    id: app-version
+    attributes:
+      label: App 版本
+      description: 设置 → 应用信息，或首页底部显示的版本号
+      placeholder: "1.6"
+    validations:
+      required: true
+  - type: input
+    id: camera
+    attributes:
+      label: 相机型号与固件
+      placeholder: "OM-1 / 固件 1.5"
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: 手机型号与 Android 版本
+      placeholder: "Xiaomi 15 / Android 15"
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: 组网方式
+      options:
+        - 手机热点（相机连手机）
+        - 同一路由器
+        - 手动填 IP 连接
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 相机开启 PC 连接
+        2. App 点「发现相机」
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: 截图（脱敏）、App 内日志文字、是否必现

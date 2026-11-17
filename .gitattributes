@@ -1,0 +1,24 @@
+# 统一换行符，避免 Windows / macOS / Linux 协作时整文件 diff
+* text=auto eol=lf
+
+*.kt    text diff=kotlin
+*.kts   text
+*.md    text
+*.xml   text
+*.yml   text
+*.yaml  text
+*.json  text
+
+# 二进制，不做换行与文本 diff
+*.jar     binary
+*.apk     binary
+*.aab     binary
+*.png     binary
+*.jpg     binary
+*.webp    binary
+*.pcapng  binary
+
+# Gradle wrapper 必须保留 LF 与可执行位
+gradlew        text eol=lf
+gradlew.bat    text eol=crlf
+*.bat          text eol=crlf

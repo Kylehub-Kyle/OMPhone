@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用说明与已知前提
+    url: https://github.com/Kylehub-Kyle/OMPhone#已知前提
+    about: 连接不上时先看这里：会话独占、相机休眠断连、热点隔离
